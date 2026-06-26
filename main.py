@@ -130,7 +130,7 @@ def debug():
         "TODOIST_API_TOKEN": "SET" if TODOIST_API_TOKEN else "MISSING",
         "ANTHROPIC_API_KEY": "SET" if ANTHROPIC_API_KEY else "MISSING",
         "WEBHOOK_SECRET":    "SET" if WEBHOOK_SECRET else "MISSING",
-    })
+    "all_env_var_names": sorted(list(__import__('os').environ.keys())),})
 
 
 @app.route("/webhook", methods=["POST"])
