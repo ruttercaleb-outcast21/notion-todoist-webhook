@@ -74,31 +74,18 @@ def classify_project(task_text: str) -> str:
 
 def get_checked_todo_blocks(page_id: str) -> list:
     """Return all checked to-do blocks on a Notion page."""
+    all_blocks = notion.blocks.children.list(block_id=page_id, page_size=100).get("results", [])
     checked_items = []
-    cursor = None
-
-    while True:
-        kwargs = {"block_id": page_id, "page_size": 100}
-        if cursor:
-            kwargs["start_cursor"] = cursor
-
-        response = notion.blocks.children.list(**kwargs)
-
-        for block in response.get("results", []):
-            if block.get("type") != "to_do":
-                continue
-            todo = block.get("to_do", {})
-            if not todo.get("checked", False):
-                continue
-            rich_text = todo.get("rich_text", [])
-            text = "".join(t.get("plain_text", "") for t in rich_text).strip()
-            if text:
-                checked_items.append({"block_id": block["id"], "text": text})
-
-        if not response.get("has_more"):
-            break
-        cursor = response.get("next_cursor")
-
+    for block in all_blocks:
+        if block.get("type") != "to_do":
+            continue
+        todo = block.get("to_do", {})
+        if not todo.get("checked"):
+            continue
+        rich_text = todo.get("rich_text", [])
+        text = "".join(t.get("plain_text", "") for t in rich_text).strip()
+        if text:
+            checked_items.append({"block_id": block["id"], "text": text})
     return checked_items
 
 
