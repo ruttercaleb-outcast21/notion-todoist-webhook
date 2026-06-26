@@ -33,11 +33,12 @@ anthropic_client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
 # ── Helpers ────────────────────────────────────────────────────────────────────
 
 def get_todays_digest_page_id() -> str | None:
-    """Find today's morning digest page in the Notion database."""
+    """Find the most recently created digest page for today."""
     today = datetime.date.today().isoformat()
     response = notion.databases.query(
         database_id=NOTION_DATABASE_ID,
         filter={"property": "Date", "date": {"equals": today}},
+        sorts=[{"timestamp": "created_time", "direction": "descending"}],
     )
     results = response.get("results", [])
     if not results:
