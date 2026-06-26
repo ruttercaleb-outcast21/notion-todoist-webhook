@@ -11,10 +11,13 @@ logger = logging.getLogger(__name__)
 app = Flask(__name__)
 
 # ── Environment variables ──────────────────────────────────────────────────────
-NOTION_TOKEN       = os.environ["NOTION_TOKEN"]
-TODOIST_API_TOKEN  = os.environ["TODOIST_API_TOKEN"]
-ANTHROPIC_API_KEY  = os.environ["ANTHROPIC_API_KEY"]
-WEBHOOK_SECRET     = os.environ.get("WEBHOOK_SECRET", "")
+try:
+    NOTION_TOKEN       = os.environ["NOTION_TOKEN"]
+    TODOIST_API_TOKEN  = os.environ["TODOIST_API_TOKEN"]
+    ANTHROPIC_API_KEY  = os.environ["ANTHROPIC_API_KEY"]
+    WEBHOOK_SECRET     = os.environ.get("WEBHOOK_SECRET", "")
+except KeyError as e:
+    raise SystemExit(f"Missing required environment variable: {e}")
 
 # ── Todoist project IDs ────────────────────────────────────────────────────────
 TODOIST_PROJECTS = {
