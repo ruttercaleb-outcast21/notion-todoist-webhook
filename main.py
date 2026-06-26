@@ -141,6 +141,26 @@ def health():
     return jsonify({"status": "ok"})
 
 
+@app.route("/test-todoist")
+def test_todoist():
+    """Test Todoist API connection and task creation."""
+    token_preview = TODOIST_API_TOKEN[:8] + "..." if TODOIST_API_TOKEN else "NOT SET"
+    resp = requests.post(
+        "https://api.todoist.com/rest/v2/tasks",
+        headers={
+            "Authorization": f"Bearer {TODOIST_API_TOKEN}",
+            "Content-Type": "application/json",
+        },
+        json={"content": "Webhook test task", "project_id": "6gx9wqFRmFPcCJ6v"},
+        timeout=10,
+    )
+    return jsonify({
+        "token_preview": token_preview,
+        "status_code": resp.status_code,
+        "response": resp.text[:500],
+    })
+
+
 @app.route("/debug-page")
 def debug_page():
     """Show all block types on today's most recent digest page."""
