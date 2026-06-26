@@ -191,9 +191,19 @@ def trigger():
         result = process_digest(page_id)
 
         if result["tasks_created"] == 0:
+            # Debug: count all to_do blocks and how many are checked
+            all_blocks = notion.blocks.children.list(block_id=page_id, page_size=100).get("results", [])
+            todo_blocks = [b for b in all_blocks if b.get("type") == "to_do"]
+            checked_blocks = [b for b in todo_blocks if b.get("to_do", {}).get("checked")]
+            debug_info = (
+                f"Page ID: {page_id}<br>"
+                f"Total blocks: {len(all_blocks)}<br>"
+                f"To-do blocks: {len(todo_blocks)}<br>"
+                f"Checked to-do blocks: {len(checked_blocks)}"
+            )
             return _html_page(
                 "Nothing to do",
-                "No checked items found in today's digest.<br><br>"
+                f"No checked items found.<br><br>{debug_info}<br><br>"
                 "Go back to Notion, check the action items you want, then click the button again."
             )
 
