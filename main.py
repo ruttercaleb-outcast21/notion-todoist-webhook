@@ -80,12 +80,15 @@ def get_checked_todo_blocks(page_id: str) -> list:
         if block.get("type") != "to_do":
             continue
         todo = block.get("to_do", {})
-        if not todo.get("checked"):
-            continue
+        checked = todo.get("checked")
         rich_text = todo.get("rich_text", [])
         text = "".join(t.get("plain_text", "") for t in rich_text).strip()
+        logger.info(f"TO_DO block: checked={checked!r} type={type(checked).__name__} text={text[:50]!r}")
+        if not checked:
+            continue
         if text:
             checked_items.append({"block_id": block["id"], "text": text})
+    logger.info(f"get_checked_todo_blocks returning {len(checked_items)} items")
     return checked_items
 
 
