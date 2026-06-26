@@ -122,8 +122,10 @@ def health():
 
 @app.route("/debug")
 def debug():
-    """Shows which required env vars are present (not their values)."""
+    """Shows all env var names available to the app."""
+    all_keys = sorted(os.environ.keys())
     return jsonify({
+        "all_env_var_names": all_keys,
         "NOTION_TOKEN":      "SET" if NOTION_TOKEN else "MISSING",
         "TODOIST_API_TOKEN": "SET" if TODOIST_API_TOKEN else "MISSING",
         "ANTHROPIC_API_KEY": "SET" if ANTHROPIC_API_KEY else "MISSING",
