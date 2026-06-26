@@ -98,7 +98,7 @@ def uncheck_block(block_id: str) -> None:
 
 def create_todoist_task(task_name: str, project_id: str) -> dict:
     resp = requests.post(
-        "https://api.todoist.com/rest/v2/tasks",
+        "https://api.todoist.com/api/v1/tasks",
         headers={
             "Authorization": f"Bearer {TODOIST_API_TOKEN}",
             "Content-Type": "application/json",
@@ -146,7 +146,7 @@ def test_todoist():
     """Test Todoist API connection and task creation."""
     token_preview = TODOIST_API_TOKEN[:8] + "..." if TODOIST_API_TOKEN else "NOT SET"
     resp = requests.post(
-        "https://api.todoist.com/rest/v2/tasks",
+        "https://api.todoist.com/api/v1/tasks",
         headers={
             "Authorization": f"Bearer {TODOIST_API_TOKEN}",
             "Content-Type": "application/json",
