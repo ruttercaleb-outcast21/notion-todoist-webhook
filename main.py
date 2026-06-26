@@ -11,13 +11,10 @@ logger = logging.getLogger(__name__)
 app = Flask(__name__)
 
 # ── Environment variables ──────────────────────────────────────────────────────
-try:
-    NOTION_TOKEN       = os.environ["NOTION_TOKEN"]
-    TODOIST_API_TOKEN  = os.environ["TODOIST_API_TOKEN"]
-    ANTHROPIC_API_KEY  = os.environ["ANTHROPIC_API_KEY"]
-    WEBHOOK_SECRET     = os.environ.get("WEBHOOK_SECRET", "")
-except KeyError as e:
-    raise SystemExit(f"Missing required environment variable: {e}")
+NOTION_TOKEN       = os.environ.get("NOTION_TOKEN", "")
+TODOIST_API_TOKEN  = os.environ.get("TODOIST_API_TOKEN", "")
+ANTHROPIC_API_KEY  = os.environ.get("ANTHROPIC_API_KEY", "")
+WEBHOOK_SECRET     = os.environ.get("WEBHOOK_SECRET", "")
 
 # ── Todoist project IDs ────────────────────────────────────────────────────────
 TODOIST_PROJECTS = {
@@ -121,6 +118,17 @@ def create_todoist_task(task_name: str, project_id: str) -> dict:
 @app.route("/health")
 def health():
     return jsonify({"status": "ok"})
+
+
+@app.route("/debug")
+def debug():
+    """Shows which required env vars are present (not their values)."""
+    return jsonify({
+        "NOTION_TOKEN":      "SET" if NOTION_TOKEN else "MISSING",
+        "TODOIST_API_TOKEN": "SET" if TODOIST_API_TOKEN else "MISSING",
+        "ANTHROPIC_API_KEY": "SET" if ANTHROPIC_API_KEY else "MISSING",
+        "WEBHOOK_SECRET":    "SET" if WEBHOOK_SECRET else "MISSING",
+    })
 
 
 @app.route("/webhook", methods=["POST"])
