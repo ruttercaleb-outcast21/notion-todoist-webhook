@@ -151,6 +151,27 @@ def health():
     return jsonify({"status": "ok"})
 
 
+@app.route("/debug-page")
+def debug_page():
+    """Show all block types on today's most recent digest page."""
+    page_id = get_todays_digest_page_id()
+    if not page_id:
+        return jsonify({"error": "No page found for today"})
+
+    response = notion.blocks.children.list(block_id=page_id, page_size=100)
+    blocks = []
+    for block in response.get("results", []):
+        btype = block.get("type")
+        entry = {"type": btype}
+        if btype == "to_do":
+            todo = block.get("to_do", {})
+            entry["checked"] = todo.get("checked")
+            entry["text"] = "".join(t.get("plain_text","") for t in todo.get("rich_text",[]))
+        blocks.append(entry)
+
+    return jsonify({"page_id": page_id, "block_count": len(blocks), "blocks": blocks})
+
+
 @app.route("/trigger")
 def trigger():
     """
