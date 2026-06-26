@@ -1,4 +1,5 @@
 import os
+import datetime
 import logging
 from flask import Flask, request, jsonify
 from notion_client import Client as NotionClient
@@ -11,10 +12,11 @@ logger = logging.getLogger(__name__)
 app = Flask(__name__)
 
 # ── Environment variables ──────────────────────────────────────────────────────
-NOTION_TOKEN       = os.environ.get("NOTION_TOKEN", "")
-TODOIST_API_TOKEN  = os.environ.get("TODOIST_API_TOKEN", "")
-ANTHROPIC_API_KEY  = os.environ.get("ANTHROPIC_API_KEY", "")
-WEBHOOK_SECRET     = os.environ.get("WEBHOOK_SECRET", "")
+NOTION_TOKEN        = os.environ.get("NOTION_TOKEN", "")
+TODOIST_API_TOKEN   = os.environ.get("TODOIST_API_TOKEN", "")
+ANTHROPIC_API_KEY   = os.environ.get("ANTHROPIC_API_KEY", "")
+WEBHOOK_SECRET      = os.environ.get("WEBHOOK_SECRET", "")
+NOTION_DATABASE_ID  = os.environ.get("NOTION_DATABASE_ID", "")
 
 # ── Todoist project IDs ────────────────────────────────────────────────────────
 TODOIST_PROJECTS = {
@@ -29,6 +31,19 @@ anthropic_client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
+
+def get_todays_digest_page_id() -> str | None:
+    """Find today's morning digest page in the Notion database."""
+    today = datetime.date.today().isoformat()
+    response = notion.databases.query(
+        database_id=NOTION_DATABASE_ID,
+        filter={"property": "Date", "date": {"equals": today}},
+    )
+    results = response.get("results", [])
+    if not results:
+        return None
+    return results[0]["id"]
+
 
 def classify_project(task_text: str) -> str:
     """Ask Claude Haiku which Todoist project a task belongs to."""
@@ -56,12 +71,8 @@ def classify_project(task_text: str) -> str:
     return result if result in TODOIST_PROJECTS else "Personal"
 
 
-def get_checked_todo_blocks(page_id: str) -> list[str]:
-    """
-    Fetch all blocks on a Notion page and return the plain text of every
-    to_do block that is checked (checked == True).
-    Handles pagination so long pages are fully scanned.
-    """
+def get_checked_todo_blocks(page_id: str) -> list:
+    """Return all checked to-do blocks on a Notion page."""
     checked_items = []
     cursor = None
 
@@ -91,15 +102,10 @@ def get_checked_todo_blocks(page_id: str) -> list[str]:
 
 
 def uncheck_block(block_id: str) -> None:
-    """Reset a to_do block to unchecked after it's been sent to Todoist."""
-    notion.blocks.update(
-        block_id=block_id,
-        to_do={"checked": False},
-    )
+    notion.blocks.update(block_id=block_id, to_do={"checked": False})
 
 
 def create_todoist_task(task_name: str, project_id: str) -> dict:
-    """Create a task in Todoist."""
     resp = requests.post(
         "https://api.todoist.com/rest/v2/tasks",
         headers={
@@ -113,6 +119,30 @@ def create_todoist_task(task_name: str, project_id: str) -> dict:
     return resp.json()
 
 
+def process_digest(page_id: str) -> dict:
+    """Core logic: read checked items, classify, create Todoist tasks."""
+    checked_items = get_checked_todo_blocks(page_id)
+
+    if not checked_items:
+        return {"tasks_created": 0, "tasks": [], "errors": [], "message": "No checked items found."}
+
+    created, errors = [], []
+
+    for item in checked_items:
+        try:
+            project_name = classify_project(item["text"])
+            project_id   = TODOIST_PROJECTS[project_name]
+            logger.info(f"Creating: '{item['text']}' → {project_name}")
+            todoist_task = create_todoist_task(item["text"], project_id)
+            created.append({"task": item["text"], "project": project_name})
+            uncheck_block(item["block_id"])
+        except Exception as exc:
+            logger.error(f"Error on '{item['text']}': {exc}")
+            errors.append({"text": item["text"], "error": str(exc)})
+
+    return {"tasks_created": len(created), "tasks": created, "errors": errors}
+
+
 # ── Routes ─────────────────────────────────────────────────────────────────────
 
 @app.route("/health")
@@ -120,77 +150,69 @@ def health():
     return jsonify({"status": "ok"})
 
 
-@app.route("/debug")
-def debug():
-    """Shows all env var names available to the app."""
-    all_keys = sorted(os.environ.keys())
-    return jsonify({
-        "all_env_var_names": all_keys,
-        "NOTION_TOKEN":      "SET" if NOTION_TOKEN else "MISSING",
-        "TODOIST_API_TOKEN": "SET" if TODOIST_API_TOKEN else "MISSING",
-        "ANTHROPIC_API_KEY": "SET" if ANTHROPIC_API_KEY else "MISSING",
-        "WEBHOOK_SECRET":    "SET" if WEBHOOK_SECRET else "MISSING",
-    "all_env_var_names": sorted(list(__import__('os').environ.keys())),})
-
-
-@app.route("/webhook", methods=["POST"])
-def handle_webhook():
-    # Optional shared-secret check
-    if WEBHOOK_SECRET:
-        if request.headers.get("X-Webhook-Secret", "") != WEBHOOK_SECRET:
-            return jsonify({"error": "Unauthorized"}), 401
-
-    # The Notion button sends the page ID in the request body
-    body = request.get_json(silent=True) or {}
-    page_id = body.get("page_id") or body.get("data", {}).get("page_id")
-
-    if not page_id:
-        logger.error("No page_id in request body")
-        return jsonify({"error": "page_id required in request body"}), 400
-
-    logger.info(f"Webhook received for page: {page_id}")
-
+@app.route("/trigger")
+def trigger():
+    """
+    Browser-friendly GET endpoint.
+    Notion button uses 'Open URL' to visit this page.
+    Finds today's digest automatically, processes checked items,
+    and returns a readable HTML confirmation.
+    """
     try:
-        checked_items = get_checked_todo_blocks(page_id)
-        logger.info(f"Found {len(checked_items)} checked item(s)")
+        if not NOTION_DATABASE_ID:
+            return _html_page("Setup needed", "NOTION_DATABASE_ID environment variable is not set.")
 
-        if not checked_items:
-            return jsonify({
-                "status": "success",
-                "message": "No checked items found",
-                "tasks_created": 0,
-            })
+        page_id = get_todays_digest_page_id()
+        if not page_id:
+            return _html_page("No digest found", "No morning digest page found for today. Run the email digest script first.")
 
-        created, errors = [], []
+        result = process_digest(page_id)
 
-        for item in checked_items:
-            try:
-                project_name = classify_project(item["text"])
-                project_id   = TODOIST_PROJECTS[project_name]
-                logger.info(f"Creating: '{item['text']}' → {project_name}")
+        if result["tasks_created"] == 0:
+            return _html_page(
+                "Nothing to do",
+                "No checked items found in today's digest.<br><br>"
+                "Go back to Notion, check the action items you want, then click the button again."
+            )
 
-                todoist_task = create_todoist_task(item["text"], project_id)
-                created.append({
-                    "task":       item["text"],
-                    "project":    project_name,
-                    "todoist_id": todoist_task.get("id"),
-                })
-                uncheck_block(item["block_id"])
+        task_lines = "".join(
+            f"<li><strong>{t['task']}</strong> &rarr; {t['project']}</li>"
+            for t in result["tasks"]
+        )
+        error_lines = ""
+        if result["errors"]:
+            error_lines = "<p style='color:red'>Errors: " + ", ".join(e["text"] for e in result["errors"]) + "</p>"
 
-            except Exception as exc:
-                logger.error(f"Error on '{item['text']}': {exc}")
-                errors.append({"text": item["text"], "error": str(exc)})
-
-        return jsonify({
-            "status":        "success",
-            "tasks_created": len(created),
-            "tasks":         created,
-            "errors":        errors,
-        })
+        return _html_page(
+            f"✅ {result['tasks_created']} task(s) created!",
+            f"<ul>{task_lines}</ul>{error_lines}<p>Checkboxes have been reset in Notion.</p>"
+        )
 
     except Exception as exc:
-        logger.error(f"Webhook error: {exc}")
-        return jsonify({"error": str(exc)}), 500
+        logger.error(f"Trigger error: {exc}")
+        return _html_page("Error", str(exc))
+
+
+def _html_page(title: str, body: str) -> str:
+    return f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>{title}</title>
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <style>
+            body {{ font-family: -apple-system, sans-serif; max-width: 600px;
+                   margin: 60px auto; padding: 0 20px; color: #333; }}
+            h1 {{ font-size: 24px; }}
+            ul {{ line-height: 1.8; }}
+        </style>
+    </head>
+    <body>
+        <h1>{title}</h1>
+        <p>{body}</p>
+    </body>
+    </html>
+    """, 200, {"Content-Type": "text/html"}
 
 
 # ── Entry point ────────────────────────────────────────────────────────────────
